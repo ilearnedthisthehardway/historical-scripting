@@ -1,0 +1,170 @@
+#!/bin/bash
+#
+# NAME:
+# outputSetup
+#
+# DESCRIPTION:
+# This script sets various variables for terminal/text output.  Color names that
+# end with 'f' are foreground (text) colors, and those ending with 'b' are
+# background colors.  The escape sequences below were found in "Wicked Cool
+# Shell Scripts".  Additionally, the function printfmt is included to ease the
+# output of printf command by allowing for escaped text as well as centering 
+# text (with a "c").
+#
+# USE:
+# This script is used as a source script via "." or "source" in other scripts
+#
+# PROVIDES:	+ numerous text output escape sequences as variables
+#		- printfmt()
+#
+# AUTHOR:
+# Daniel Whitley
+#
+# DATE:
+# December 2007
+################################################################################
+
+# FOR TESTING DISPLAY A "RULER"
+if [ "$1" == "testing" ]; then
+  echo "|   |  10|    |  20|    |  30|    |  40|    |  50|    |  60|    |  70|    |  80|    |  90|    | 100|";
+elif [ "$1" == "usage" ]; then
+  echo "print a usage message here (and exit?)";
+fi
+
+#####++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#####
+esc="\033";
+
+blackf="${esc}[30m";	redf="${esc}[31m";	greenf="${esc}[32m";
+yellowf="${esc}[33m";	bluef="${esc}[34m";	purplef="${esc}[35m";
+cyanf="${esc}[36m";	whitef="${esc}[37m";
+
+blackb="${esc}[40m";	redb="${esc}[41m";	greenb="${esc}[42m";
+yellowb="${esc}[43m";	blueb="${esc}[44m";	purpleb="${esc}[45m";
+cyanb="${esc}[46m";	whiteb="${esc}[47m";
+
+boldon="${esc}[01m";	boldoff="${esc}[22m";
+italicson="${esc}[03m";	italicsoff="${esc}[23m";
+ulon="${esc}[04m";	uloff="${esc}[24m";
+invon="${esc}[07m";	invoff="${esc}[27m";
+blinkon="${esc}[05m";	blinkoff="${esc}[25m";
+
+reset="${esc}[00m";
+#####++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#####
+
+#####----------------------------------------------------------------------#####
+###> This function acts as a wrapper for the printf command.  It accepts the
+# same arguments including a format specification and text to format.  However,
+# this function takes into account the escaped character count when outputing
+# with "b" (otherwise the escape characters would throw off what you would want/
+# expect as width).  Additionally the function allows a "c" option in the format
+# specification (different then the "c" option natively used with printf) which
+# centers the text corresponding with the field in the specified width.
+#
+## EXAMPLE USE:  
+## printfmt "|%80c|\n" "${boldon}Centered Bold Text${boldoff}";
+#
+printfmt() { 
+fmtspec=$1;	# Capture the first argument as the format specification
+shift;		# and remove it from the list of arguments
+num_args=$#;	# How many additional arguments (fields) remain
+newfmt="";	# We will construct a new command with a new format spec.
+text_string=""	# as well as a new text string (for the command)
+
+###> The format specification "may" start and finish with special characters, so
+# capture these if so (they'll be assigned blank otherwise) and take them off
+# the format specification. ### ----->
+last_index=$(echo $fmtspec | awk '{ print split($0,pieces,/\%\-?[[:digit:]]*[[:alpha:]]/); }');
+last=$(echo $fmtspec | awk -v count=$last_index '{ split($0,pieces,/\%\-?[[:digit:]]*[[:alpha:]]/); print pieces[count]; }');
+first=$(echo $fmtspec | awk -v count=$last_index '{ split($0,pieces,/\%\-?[[:digit:]]*[[:alpha:]]/); print pieces[1]; }');
+
+fmtspec="${fmtspec#${first}}";				# take off the front
+fmtspec="${fmtspec:0:$((${#fmtspec}-${#last}))}";	# take off the end
+### <-----
+
+###> For each "field" (or argument) inspect the corresponding format spec.  If
+# the field includes escape sequences, count them and account for how many
+# characters they would add.  Increment the width accordingly.  If the format
+# specification for this field includes a "c", center the field in the specified
+# width using some simple math and by adding an additional blank field to the
+# final text string, again taking into account escape characters.  Essentially,
+# here is where the new format and new text string are created that will be used
+# in the command we "build".  ### ----->
+count=1;			# Step through the arguments/fields
+times=$num_args;		# Do it till the end
+while [ $count -le $times ];
+do
+  format_index=$((count+1));	# Step through corresponding format specs
+  # $full gets the entire format specification for the current field
+  full=$(echo $fmtspec | awk -v count=$format_index '{ split($0,pieces,/\%/); print pieces[count]; }');
+  
+  isNegative="";		# If there's no "-", $isNegative is nothing
+  if [ "${full%${full#?}}" == "-" ]; then	# If full does start with "-"
+    full="${full#?}";				# strip it off,
+    isNegative="-";				# but keep it.
+  fi
+  width=$(echo $full | sed 's/\([[:digit:]]*\).*/\1/g');	# Get the width
+  type=$(echo $full | sed 's/[[:digit:]]//g');			# and the type
+  if [ $type == "" ]; then type="s"; fi	# If there's no type, we've added it: s
+#-#> Escape characters are always in the format of \\033[xxm so look for that.
+  num_esc=$(echo ${!count} | awk '{ print split($0,pieces,/\\033\[[0-9][0-9]m/); }');
+  if [ "$num_esc" != "0" ]; then 
+    ((num_esc-=1));	# because of the search there's one less then we think
+  else
+    num_esc=0;		# otherwise make it 0 for the calculations
+  fi
+  extra=$((num_esc*5));	# each escape essentially adds 5 characters to width
+  new_width=$(($width+$extra));	# but we want to save the original width
+#-#> A type "c" indicates that we need to "center" the text in the width
+  # specified.  To do this we need to do some math and add an additional text
+  # field buffered with spaces (s).
+  if [ "$type" == "c" ]; then
+    type=b;	# type c is made up, we want to catch it, but format with b
+
+    text=${!count};
+    left_char=`echo $text | awk '/^[[:punct:]][[:space:]]+/ {print $1;}'`;
+    if [ "$left_char" != "" ]; then text="${text#??}";  fi	# strip first 2 chars
+    right_char=`echo $text | awk '/[[:space:]]+[[:punct:]]$/ {print $NF;}'`;
+    if [ "$right_char" != "" ]; then text="${text%??}"; fi	# strip last 2 chars
+
+    full_length=$(echo ${text} | awk '{ print length(); }');	# total length
+    esc_length=$(($num_esc*8));	# for centering, escapes add 8 characters..?
+    text_length=$(($full_length-$esc_length));	# length of the visible text
+    compute_length=$(($width-$text_length));	# need this length to compute
+    right_side=$(($compute_length/2));		# right hand "buffer" size 
+    left_side=$(($new_width-$right_side));	# left hand text size
+
+    if [ "$left_char" == "" ]; then left_char=" "; fi
+    if [ "$right_char" == "" ]; then right_char=" "; fi
+
+    left_buf_size=$(($compute_length-$right_side));
+    left_buf="";
+    for (( i=$left_buf_size; i > 1 ; i-- )); do left_buf="${left_char}${left_buf}"; done
+    text="${left_buf} ${text}";
+    right_buf="";
+    for (( i=$right_side; i > 1 ; i-- )); do right_buf="${right_buf}${right_char}"; done
+    right_buf=" ${right_buf}";		# insert a padded space
+    
+    final="${left_side}b%${right_side}b";	# build this format (w/ space)
+    text_string="${text_string} \"${text}\" \"${right_buf}\"";	# add space buff to text
+  else
+    final=${isNegative}${new_width}${type};	# build this format 
+    text_string="${text_string} \"${!count}\"";	# add this field to text string
+  fi  
+  newfmt="${newfmt}%${final}";	# build the new format by adding each format
+  ((count+=1));			# go to the next field
+#echo "full: $full_length  esc: $esc_length  text: $text_length  compute: $compute_length  left: $left_side  right: $right_side new_width: $new_width";
+done
+### <-----
+
+###> Replace the possible first and end characters to the format string and then
+# build the new command with the updated format string and updated text string.
+# Use the printf command to do the work on our new command.  ### ----->
+
+#echo "$newfmt $text_string";
+
+newfmt="${first}${newfmt}${last}";	# re-add the first and end
+command="printf \"$newfmt\" ""$text_string";
+eval "$command";
+### <-----
+} ###> end of printfmt
+#####----------------------------------------------------------------------#####

@@ -1,0 +1,324 @@
+#!/bin/bash
+#
+# NAME:
+# dateFunctions
+#
+# DESCRIPTION:
+# This script contains various functions relating to dates, such as normalizing
+# date formats, converting date formats for comparison, etc.  The comparison
+# format I have come up with is a way of representing the date as an integer
+# corresponding to the year and day of the year such that older dates are
+# smaller integers.  The format is YYYYDDD where DDD is the number of the day
+# of the year, i.e.:  2007319 is the 319th day of 2007, which is Nov 15.
+#
+# Some of the validation was adpapted from "Wicked Cool Shell Scripts".
+#
+# USE:
+# This script is used as a source script via "." or "source" in other scripts
+#
+# PROVIDES:	+ $today		# format MMM DD YYYY
+# 		- monthNoToName()	# returns MMM
+#		- normalizeDate()	# returns MMM DD YYYY "normalized"
+#		- dateToNum()		# returns YYYYDDD (DDD is day of year)
+#		- numToDate()		# returns MMM DD YYYY
+# (the functions above^ echo a return value that will be "caught" in the calling
+#  script with command substitution, i.e.:  variable=$(function <parameter>)  )
+#		- exceedsDaysInMonth()	# returns 0 if not exceeded
+#		- isLeapYear()		# returns 0 if is a leap year
+#		- valiDate()		# returns 0 if valid
+#
+# AUTHOR:
+# Daniel Whitley
+#
+# DATE:
+# December 2007
+#
+# UPDATE [July 2010]:  *********************************************************
+# The above functionality will remain, but I have found an easier and better
+# way to compare dates and times.  Using "date" with various output methods and
+# particularly the timestamp format (seconds since 1970-01-01 00:00:00 UTC) as
+# a comparison baseline, the following functionality has been added:
+#
+# PROVIDES:	- date2stamp()		# returns the timestamp of given date
+#		- stamp2date()		# returns a date from a timestamp
+#		- dateTimeDiff()	# returns the difference between times	
+#
+# ADDITIONAL:
+# Also added to the end is a few different ways to do month name/number
+# conversions.
+################################################################################
+#####++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#####
+JAN=0		# These values are assigned in order to do a fairly
+FEB=31		# simple comparison.  The date is converted to a 
+MAR=59		# number in the format of YYYYDDD where DDD is the
+APR=90		# day of the year.  It is computed using the month
+MAY=120		# valuse seen here.  These variables are dereferenced
+JUN=151		# farther down with ${!mons} to calculate the day
+JUL=181		# of the year.
+AUG=212		#
+SEP=243		# Essentially doing APR=JAN+FEB+MAR+(days in March)
+OCT=273		#
+NOV=304		#
+DEC=334		#
+
+mons_names=( DEC NOV OCT SEP AUG JUL JUN MAY APR MAR FEB JAN );
+#####++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#####
+
+#####----------------------------------------------------------------------#####
+###> Accepts a number value and sets $month to the appropriate value
+#
+## EXAMPLE USE:
+## month_name=$(monthNoToName 12)	# <- $month_name is set to "DEC"
+#
+monthNoToName() {
+case $1 in
+  1  )  month="JAN"	;;	2  )  month="FEB"	;;
+  3  )  month="MAR"	;;	4  )  month="APR"	;;
+  5  )  month="MAY"	;;	6  )  month="JUN"	;;
+  7  )  month="JUL"	;;	8  )  month="AUG"	;;
+  9  )  month="SEP"	;;	10 )  month="OCT"	;;
+  11 )  month="NOV"	;;	12 )  month="DEC"	;;
+  *  )  echo "Unknown numeric month value $1."
+esac
+echo "$month";		# will be "caught" with command substitution
+} ###> end of monthNoToName
+#####----------------------------------------------------------------------#####
+
+
+#####----------------------------------------------------------------------#####
+###> Accept a date in many formats and return (via command subs) a normalized
+# date in the format MMM DD YYYY where a single digit day is " D"
+#
+## EXAMPLE USE:
+## norm_date=$(normalizeDate 12/09/2007);     # <- $norm_date set "DEC  9 2007"
+#
+normalizeDate() {
+if [ $# -eq 1 ]; then set -- $(echo $1 | sed 's/[\/\-]/ /g'); fi  # check format
+if [ -z $(echo $1 | sed 's/[[:digit:]]//g') ]; then 	# already a num?
+  norm_month=$(monthNoToName $1);			# convert it.
+else							# otherwise, get 3 upper
+  norm_month="$(echo $1 | cut -c1-3 | tr '[:lower:]' '[:upper:]')";	# chars
+fi
+
+norm_day="$(echo $2 | sed 's/^0/ /g')";	# for search fromat, need space vice 0
+if [ "${#norm_day}" -eq 1 ]; then norm_day=" $norm_day"; fi	# "" 	   ""
+
+echo "$norm_month $norm_day $3";
+} ###> end of normalizeDate
+#####----------------------------------------------------------------------#####
+
+
+#####++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#####
+###> Set $today to format MMM DD YYYY
+todays_date=`date +"%b %d %Y" | awk '{ print toupper($0); }'`; 
+today=$(normalizeDate $todays_date);
+#####++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++#####
+
+
+#####----------------------------------------------------------------------#####
+###> Take a date in format MMM DD YYYY and convert to comparison format YYYYDDD
+# This will be used with date values I pass, so no parameter checking...
+#
+## EXAMPLE USE:
+## num_date=$(dateToNum Dec 01 2007);	# <- $num_date set to 2007335
+#
+dateToNum() {
+days=$2;
+mons=$(echo $1 | awk -v mons=$1 '{ print toupper(mons) }');
+year=$3;	
+
+num_mons=${!mons}				# Dereference the MMM variable
+num_comp_year=$(($year*1000))			# Get YYYY000
+num_comp_date=$(($num_comp_year+$mons+$days))	# Make the comparison date format YYYYDDD
+
+echo "$num_comp_date"	# will be "caught" with command substitution
+} ###< end of dateToNum
+#####----------------------------------------------------------------------#####
+
+
+#####----------------------------------------------------------------------#####
+###> Take a date in format YYYYDDD and convert to format MMM DD YYYY for reading
+# This will be used with date values I pass, so no parameter checking...
+#
+## EXAMPLE USE:
+## word_date=$(numToDate 2007335)	# <- $word_date set to DEC  1 2007
+#
+numToDate() {
+comp_date=$1				# the comparison date
+year=$(($comp_date/1000))		# get the year
+mons_and_days=$(($comp_date%1000))	# and the remainder is the day of year
+
+for MON in ${mons_names[@]};		# Figure out the first month smaller
+do					# then day of year number (this array
+  if [ $mons_and_days -gt ${!MON} ]; then	# is backward DEC-JAN
+    eng_mons=$MON;				# This is the month
+    eng_days=$(($mons_and_days-$MON));		# and this is the days...
+    break;					# Break out of the for loop
+  fi
+done 
+normalized=$(normalizeDate "$eng_mons $eng_days $year");	# normalize out
+
+echo "$normalized"	# will be "caught" with command substitution
+} ###< end of numToDate
+#####----------------------------------------------------------------------#####
+
+
+#####----------------------------------------------------------------------#####
+###> Given a month name, return 0 if the specified day value is less than or
+# equal to the max days in the month; 1 otherwise
+#
+## EXAMPLE USE:
+## if ! exceedsDaysInMonth FEB 20; then		# <- returns 1 so do THEN
+#
+exceedsDaysInMonth() {
+case $(echo $1 | tr '[:lower:]' '[:upper:]') in
+  JAN*	)  days=31	;;	FEB*  )  days=28	;;
+  MAR*  )  days=31	;;	APR*  )  days=30	;;
+  MAY*  )  days=31	;;	JUN*  )  days=30	;;
+  JUL*  )  days=31	;;	AUG*  )  days=31	;;
+  SEP*  )  days=30	;;	OCT*  )  days=31	;;
+  NOV*  )  days=30	;;	DEC*  )  days=31	;;
+  *  )	return 1;
+esac
+
+if [[ $2 -lt 1 || $2 -gt $days ]]; then
+  return 1;
+else
+  return 0;	# the day number is valid
+fi
+} ###> end of exceedsDaysInMonth
+#####----------------------------------------------------------------------#####
+
+
+#####----------------------------------------------------------------------#####
+###> This function returns 0 if a leap year, 1 otherwise
+#
+## EXAMPLE USE:
+## if ! isLeapYear 2004 ; then			# <- returns 1 so do THEN
+#
+isLeapYear() {
+year=$1;
+if [ "$((year % 4))" -ne 0 ]; then
+  return 1;	# nope, not a leap year
+elif [ "$((year % 400))" -eq 0 ]; then
+  return 0;	# yep, it's a leap year
+elif [ "$((year % 100))" -eq 0 ]; then
+  return 1;	# nope
+else
+  return 0;
+fi
+} ###> end of isLeapYear
+#####----------------------------------------------------------------------#####
+
+#####----------------------------------------------------------------------#####
+###> This function expects a date in a specific format:  MMM DD YYYY and 
+# validates the date according to days/month, leap year, number of arguments,
+# etc and returns a 0 if valid, or 1 otherwise.
+#
+## EXAMPLE USE:
+## if valiDate DEC  1 2007 ; then		# <- returns 0, do THEN
+#
+valiDate() {
+  if [ $# -ne 3 ]; then return 1; fi	# make sure you get 3 arguments
+  if [ $3 -le 99 ]; then return 1; fi	# make sure year is 4 digit
+  
+  if ! exceedsDaysInMonth $1 $2 ; then
+    if [[ "$1" == "FEB" && "$2" -eq "29" ]]; then
+      if ! isLeapYear $3 ; then
+        return 1;	# not a leap year, so this month doesn't have 29 days
+      fi
+    else
+      return 1;	# bad day value, this month doesn't have this many days
+    fi
+  fi
+  
+  return 0;	#  passes, appears to be valid
+} ###> end of valiDate
+#####----------------------------------------------------------------------#####
+
+#******************************************************************************#
+#******************************************************************************#
+#******************************************************************************#
+
+### date2stamp() ###>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>#
+# Simply convert a passed in date (in an acceptable format) and convert it to
+# a timestamp format, which is seconds since 1970-01-01 00:00:00 UTC.
+#  EXAMPLE:  date2stamp "2006-10-01 15:00"; |-----------------------------------
+date2stamp() { # "date"
+  dte="$@";
+  date --utc --date "$dte" +%s;
+}  ###> end of date2stamp() |---------------------------------------------------
+#<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<### date2stamp() ###
+
+### stamp2date() ###>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>#
+# Simply convert a passed in timestamp (seconds since 1970-01-01 00:00:00 UTC)
+# and convert it to the UTC time.  The new format will be YYYY-MM-DD HH:MM:SS.
+#  EXAMPLE:  stamp2date 1159714800; |-------------------------------------------
+stamp2date() { # timestamp 
+  dte="$1";
+  date --utc --date "1970-01-01 $dte sec" "+%Y-%m-%d %T";
+}  ###> end of stamp2date() |---------------------------------------------------
+#<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<### stamp2date() ###
+
+### dateTimeDiff() ###>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>#
+# This function requires 2 time stamps and compares them.  Being passed stamps
+# vs. regular time enables this to be more robust.  It can be used with the 
+# above functions.  (if passed dates, it is impossible take different formats).
+# Different options can be used to specify the difference in seconds (-s), 
+# minutes (-m), hours (-h), or days (-d, which is default if no option is given)
+# This is neat because it takes it is not affected by leapyears and by its
+# nature, is not affected when comparing time that crosses midnight, which 
+# caused problems in other implementations.
+#  EXAMPLES: 
+#    dateTimeDiff $(date2stamp "2010-10-01") $(date2stamp "2010-10-25");
+#    dateTimeDiff -m $(date2stamp "Thu Jul 29 11:42:54 EDT 2010") $(date2stamp "$(date)");
+#    dateTimeDiff -h 1280418174 1280400000
+#    etc... |-------------------------------------------------------------------
+dateTimeDiff () { # timestamp1 timestamp2
+    case $1 in
+        -s)   sec=1;      shift;;
+        -m)   sec=60;     shift;;
+        -h)   sec=3600;   shift;;
+        -d)   sec=86400;  shift;;
+        *)    sec=86400;;
+    esac
+    diffSec=$(($2-$1))
+    if ((diffSec < 0)); then abs=-1; else abs=1; fi
+    echo $((diffSec/sec*abs))
+}  ###> end of dateTimeDiff() |-------------------------------------------------
+#<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<### dateTimeDiff() ###
+
+
+### Additional info ###>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>#
+# In addition to the new functions above, here are some other uses of GNU date
+# that are not too well documented:
+# assign a value to the variable dte for the examples below
+    dte="2006-10-01 06:55:55"
+    echo $dte
+
+# add 2 days, one hour and 5 sec to any date
+    date --date "$dte  2 days 1 hour 5 sec"
+
+# substract from any date
+    date --date "$dte 3 days 5 hours 10 sec ago"
+    date --date "$dte -3 days -5 hours -10 sec"
+
+# or any mix of +/-. What will be the date in 3 months less 5 days
+    date --date "now +3 months -5 days"
+
+# time conversions into ISO-8601 format (RFC-3339 internet recommended format)
+    date --date "sun oct 1 5:45:02PM" +%FT%T%z
+    date --iso-8601=seconds --date "sun oct 1 5:45:02PM"
+    date --iso-8601=minutes
+
+# time conversions into RFC-822 format
+    date --rfc-822 --date "sun oct 1 5:45:02PM"
+
+## Changing month name to number:
+# using bash cal command with awk wizardry:
+month="feb";
+cal 2000 | awk 'NF==3 {printf "%s\n%s\n%s\n",$1,$2,$3}' | cat -n | awk 'toupper($2) ~ toupper("'$month'") {print $1;}'
+# or using the date command itself:
+month="feb";
+date +%m --date "$month 01 01"
+#<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<### Additional info ###
